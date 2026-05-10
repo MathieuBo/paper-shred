@@ -45,6 +45,45 @@ mkdir -p "$MARKER_OUT" "$DOCLING_OUT"
 STEM="$(basename "$PDF" .pdf)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Cache short-circuit: if a previous run has already produced marker_out/<stem>
+# (and optionally docling_out), emit the same key=value lines and exit. This
+# turns re-runs (e.g. tweaking the section-split rules and re-shredding a
+# directory) from minutes per paper into milliseconds.
+CACHED_MARKER_DIR="$MARKER_OUT/$STEM"
+CACHED_MARKER_MD="$CACHED_MARKER_DIR/$STEM.md"
+CACHED_MARKER_META="$CACHED_MARKER_DIR/${STEM}_meta.json"
+if [[ -f "$CACHED_MARKER_MD" && -f "$CACHED_MARKER_META" ]]; then
+    DOCLING_MD=""; DOCLING_META=""; DOCLING_PICS=""; DOCLING_TITLE=""
+    if [[ -f "$DOCLING_OUT/docling_meta.json" ]]; then
+        DOCLING_MD="$DOCLING_OUT/docling.md"
+        DOCLING_META="$DOCLING_OUT/docling_meta.json"
+        DOCLING_PICS="$DOCLING_OUT/docling_pictures"
+        DOCLING_TITLE=$(python3 -c "import json; print(json.load(open('$DOCLING_META')).get('title') or '')" 2>/dev/null || echo "")
+    fi
+    # Try to resolve the original venvs the same way as a non-cached run.
+    if [[ -x "$HOME/.venvs/pdf-pipeline/bin/marker_single" ]]; then
+        MARKER_VENV_OUT="$HOME/.venvs/pdf-pipeline"
+    else
+        MARKER_VENV_OUT="$HOME/.hermes/hermes-agent/venv"
+    fi
+    DOCLING_VENV_OUT=""
+    if [[ -x "$HOME/.venvs/docling/bin/python" ]]; then
+        DOCLING_VENV_OUT="$HOME/.venvs/docling"
+    fi
+    echo "marker_md=$CACHED_MARKER_MD"
+    echo "marker_meta=$CACHED_MARKER_META"
+    echo "marker_dir=$CACHED_MARKER_DIR"
+    echo "docling_md=$DOCLING_MD"
+    echo "docling_meta=$DOCLING_META"
+    echo "docling_pics=$DOCLING_PICS"
+    echo "docling_title=$DOCLING_TITLE"
+    echo "stem=$STEM"
+    echo "marker_venv=$MARKER_VENV_OUT"
+    echo "docling_venv=$DOCLING_VENV_OUT"
+    echo "cached=1" >&2
+    exit 0
+fi
+
 # Launch marker in background
 "$MARKER_VENV/bin/marker_single" "$PDF" --output_dir "$MARKER_OUT" \
     >"$WORK/marker.log" 2>&1 &

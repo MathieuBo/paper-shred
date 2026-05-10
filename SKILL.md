@@ -34,6 +34,30 @@ Claude reconciles them: body content from marker, title + structural scaffold fr
 **Argument**: `$ARGUMENTS` should be a path to a PDF. If empty or invalid,
 tell the user: `Usage: /paper-shred /path/to/document.pdf [output_parent_dir]`.
 
+If `$ARGUMENTS` is a **directory**, switch to batch mode (see below) instead of
+running the per-PDF Claude flow — for >5 PDFs the per-paper restructuring is
+impractical in a single session.
+
+---
+
+## Batch mode (directories of >5 PDFs)
+
+```
+python ${CLAUDE_SKILL_DIR}/bin/shred_batch.py <directory> [--require-caption]
+```
+
+Walks the directory for `*.pdf` (skipping symlinks and anything under `_raw/`),
+runs the same extract → clean → audit → split → write → post-pass pipeline per
+file using deterministic heuristics — no Claude in the loop. Idempotent: a
+folder with `meta.json + README.md` is skipped on re-run; the extract.sh cache
+makes "delete user-facing output, re-shred" finish in seconds. Per-paper status
+is appended to `<directory>/_shred_log.jsonl`. Expect 5–10 min/PDF on CPU
+(50 PDFs ≈ 5–8 hours wall time). Use `--require-caption` on Cell/Nature
+collections to drop figure panels without an anchored caption.
+
+The single-PDF Claude-assisted flow below stays the right choice when you want
+careful structural decisions (grants, theses, reviews with unusual layouts).
+
 ---
 
 ## Step 1 — Validate and resolve paths
@@ -169,6 +193,27 @@ Examples:
   `04_objective_2.md`, `05_objective_3.md`, `06_long_term_plan.md`
 - NIH R01 → `01_specific_aims.md`, `02_significance.md`, `03_innovation.md`,
   `04_approach.md`, `05_aim_1.md`, `06_aim_2.md`, `07_aim_3.md`
+
+**Three rules learned from batch-shredding 50 lab papers:**
+
+1. **Drop the title-only first section.** PMC-archived papers commonly have
+   `# Title` and `# Abstract` as sibling H1 headings, with only authors and
+   affiliations between them. After section-splitting, if the first section's
+   title matches the chosen `meta.json.title` (slug-normalised) AND its body
+   is < 800 chars, drop it and renumber. Without this, section 01 is just an
+   author block.
+
+2. **H3-fallback anchors.** Cell Press papers (MolCell, CellReports) often
+   come out of marker as all-H3 with no H1 or H2. If neither H1s nor H2s have
+   ≥ 3 entries after banner filtering, fall back to H3 anchors before
+   defaulting to a single-section dump. Without this, an entire MolCell paper
+   collapses to one section.
+
+3. **Filename metadata convention.** If the source PDF filename matches
+   `YYYY-MM_Journal_topic_(PMID\d+|DOI[\d.]+)\.pdf`, parse `year`, `journal`,
+   and the identifier from it — these populate `meta.json` for free when
+   docling/marker can't find them in the body. Optional but cheap to support;
+   the Ule lab convention exposed how often it Just Works.
 
 ### 4d. Inventory figures and tables
 

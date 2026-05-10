@@ -88,6 +88,23 @@ Claude reads `SKILL.md` for the full workflow, runs the extractors and audit
 scripts, then writes the structured folder. Output goes next to the source
 PDF unless you pass a second argument.
 
+### Batch mode (directories of >5 PDFs)
+
+```
+python bin/shred_batch.py <directory> [--require-caption]
+```
+
+Walks for `*.pdf` (skipping symlinks and `_raw/` paths), runs the full pipeline
+per file with deterministic heuristics — no LLM call per paper. Idempotent
+(skips folders that already have `meta.json + README.md`); the `extract.sh`
+cache makes re-runs after deleting user-facing output finish in seconds. Per-
+paper status streams to `<directory>/_shred_log.jsonl`. Expect 5–10 min/PDF on
+CPU (50 PDFs ≈ 5–8 hours).
+
+Use `--require-caption` to drop figure panels without an anchored
+`Figure N.` caption nearby — useful on Cell/Nature collections where marker
+extracts dozens of un-captioned panel fragments.
+
 ### From any agent (or by hand)
 
 Each script is independent and prints its result to stdout (or a JSON file).

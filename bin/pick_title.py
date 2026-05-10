@@ -45,6 +45,28 @@ REJECT_PREFIXES = re.compile(
     re.IGNORECASE,
 )
 
+# Substrings (or anchored patterns) that mark a docling title as a publisher
+# banner rather than the paper's actual title. PMC-archived papers commonly
+# pick up "Europe PMC Funders Group" or "HHS Public Access" as the largest-text
+# element on the first page; the body H1 is the real title.
+BANNER_SUBSTRINGS = [
+    "europe pmc",
+    "funders group",
+    "author manuscript",
+    "hhs public access",
+    "nih public access",
+    "sciencedirect",
+    "cell press",
+    "nature publishing group",
+    "wellcome open research",
+    "in brief",
+    "graphical abstract",
+]
+BANNER_EXACT = re.compile(
+    r"^(article|review|summary|highlights|correspondence|abstract)$",
+    re.IGNORECASE,
+)
+
 
 def reject_docling(title: str | None) -> str | None:
     """Return rejection reason, or None if the title is acceptable."""
@@ -59,6 +81,12 @@ def reject_docling(title: str | None) -> str | None:
         return f"too long ({len(t)} chars)"
     if t.isupper() and len(t) < 30:
         return "all-caps banner shape"
+    tl = t.lower()
+    for sub in BANNER_SUBSTRINGS:
+        if sub in tl:
+            return f"banner substring: {sub!r}"
+    if BANNER_EXACT.match(t):
+        return "publisher banner word"
     return None
 
 
@@ -131,6 +159,26 @@ def filename_to_title(pdf_path: Path) -> str:
     return re.sub(r"[_\s]+", " ", stem).strip()
 
 
+# Match the first H1 heading line: `# Title` or `# **Title**`. Excludes ATX
+# closing hashes, allows surrounding bold markers.
+H1_RE = re.compile(r"^#\s+\**\s*(.+?)\s*\**\s*$", re.MULTILINE)
+
+
+def first_body_h1(text: str) -> str | None:
+    """Return the first body H1 that passes the docling rejection rules.
+
+    Scans only the first ~6 KB (typical title is on page 1)."""
+    if not text:
+        return None
+    for m in H1_RE.finditer(text[:6000]):
+        candidate = m.group(1).strip().strip("*").strip()
+        if not candidate:
+            continue
+        if reject_docling(candidate) is None:
+            return candidate
+    return None
+
+
 def main():
     if len(sys.argv) != 4:
         print(
@@ -180,7 +228,7 @@ def main():
         print(json.dumps(result, indent=2))
         return
 
-    # No body field found — fall back to docling if it passes rejection rules
+    # No body project-title field. Try docling next.
     rejection = reject_docling(docling_title)
     if rejection is None and docling_title:
         print(json.dumps({
@@ -188,6 +236,20 @@ def main():
             "source": "docling",
             "rejected_docling": None,
             "rejection_reason": None,
+            "warnings": warnings,
+        }, indent=2))
+        return
+
+    # Docling rejected — fall back to first non-banner body H1 before filename.
+    h1 = first_body_h1(cleaned_text)
+    if h1:
+        if rejection:
+            warnings.append(f"docling title rejected ({rejection}); using body H1")
+        print(json.dumps({
+            "recommended": h1,
+            "source": "body_h1",
+            "rejected_docling": docling_title,
+            "rejection_reason": rejection,
             "warnings": warnings,
         }, indent=2))
         return
